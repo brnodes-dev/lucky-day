@@ -85,9 +85,6 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
-  // DEBUG LOGS (Mantido em memória apenas, sem renderização visual)
-  const addLog = (msg) => console.log(`[LuckyDay] ${msg}`);
-
   // Init
   useEffect(() => {
     if (window.ethers) { initProviders(); return; }
@@ -106,12 +103,10 @@ export default function App() {
           setWalletProvider(rProvider);
           const network = await rProvider.getNetwork();
           if (network.chainId !== CONFIG.chainId) setWrongNetwork(true);
-          addLog(`MetaMask Connected (Chain ${network.chainId})`);
       } else {
           try {
             rProvider = new window.ethers.providers.StaticJsonRpcProvider(CONFIG.rpcUrl, { chainId: CONFIG.chainId, name: 'arc-testnet' });
-            addLog(`Static RPC Connected`);
-          } catch(e) { addLog(`RPC Error: ${e.message}`); }
+          } catch(e) { console.error(e); }
       }
       setReadProvider(rProvider);
       if (rProvider) { fetchData(null, rProvider); fetchHistory(null, rProvider); }
@@ -218,14 +213,13 @@ export default function App() {
               }
           });
 
-      } catch (e) { addLog(`Fetch Data Error: ${e.message}`); }
+      } catch (e) { console.error("Fetch Data Error", e); }
   };
 
-  // --- HISTORY FETCH ---
+  // --- HISTORY FETCH (REVERSE SCANNING + LIMIT) ---
   const fetchHistory = async (sgn, prov) => {
       if(!prov) return;
       setHistoryLoading(true);
-      addLog(`Iniciando Varredura Histórica (Bloco ${CONFIG.startBlock})...`);
       
       try {
           const lottery = new window.ethers.Contract(CONFIG.contractAddress, LOTTERY_ABI, prov);
@@ -233,72 +227,81 @@ export default function App() {
           
           const currentBlock = await prov.getBlockNumber();
           const startBlock = CONFIG.startBlock;
-          const CHUNK_SIZE = 1000; 
+          const CHUNK_SIZE = 3000;
+          const MAX_WINNERS = 10;
           
-          let allLogs = [];
+          let foundWinners = [];
           
-          for (let from = startBlock; from <= currentBlock; from += CHUNK_SIZE) {
-              let to = from + CHUNK_SIZE - 1;
-              if (to > currentBlock) to = currentBlock;
+          for (let to = currentBlock; to > startBlock; to -= CHUNK_SIZE) {
+              let from = to - CHUNK_SIZE;
+              if (from < startBlock) from = startBlock;
               
+              if (foundWinners.length >= MAX_WINNERS) break;
+
               try {
-                  await new Promise(r => setTimeout(r, 500));
+                  await new Promise(r => setTimeout(r, 200));
+
                   const chunkLogs = await prov.getLogs({
                       fromBlock: from,
                       toBlock: to,
                       address: CONFIG.contractAddress
                   });
-                  if(chunkLogs.length > 0) {
-                      addLog(`Bloco ${from}: ${chunkLogs.length} eventos.`);
-                      allLogs = [...allLogs, ...chunkLogs];
+
+                  const reversedLogs = chunkLogs.reverse();
+
+                  for (let log of reversedLogs) {
+                      try {
+                          const parsed = iface.parseLog(log);
+                          
+                          if (parsed.name === "WinnerPicked") {
+                              const { token, roundId, winner, prize } = parsed.args;
+                              
+                              let symbol = 'UNK';
+                              if(token && token.toLowerCase() === CONFIG.tokens.USDC.address.toLowerCase()) symbol = 'USDC';
+                              if(token && token.toLowerCase() === CONFIG.tokens.EURC.address.toLowerCase()) symbol = 'EURC';
+
+                              let dateStr = 'Recent';
+                              let timestamp = Date.now() / 1000;
+                              
+                              try {
+                                  const block = await prov.getBlock(log.blockNumber);
+                                  if(block) {
+                                      timestamp = block.timestamp;
+                                      dateStr = new Date(block.timestamp * 1000).toLocaleDateString();
+                                  }
+                              } catch(e) {}
+
+                              const winnerData = {
+                                  txHash: log.transactionHash,
+                                  winner,
+                                  prize: window.ethers.utils.formatUnits(prize, 6),
+                                  symbol,
+                                  date: dateStr,
+                                  roundId: roundId.toString(),
+                                  blockNumber: log.blockNumber,
+                                  timestamp
+                              };
+
+                              foundWinners.push(winnerData);
+                              
+                              setHistory(prev => {
+                                  const exists = prev.find(p => p.txHash === winnerData.txHash && p.symbol === winnerData.symbol);
+                                  if (exists) return prev;
+                                  const newHistory = [...prev, winnerData];
+                                  return newHistory.sort((a,b) => b.blockNumber - a.blockNumber);
+                              });
+
+                              if (foundWinners.length >= MAX_WINNERS) break;
+                          }
+                      } catch (err) { }
                   }
               } catch (chunkErr) {
-                  addLog(`Erro chunk ${from}: ${chunkErr.message}`);
+                  console.error("Chunk Error", chunkErr);
               }
           }
           
-          if (allLogs.length === 0) {
-              setHistory([]);
-              setHistoryLoading(false);
-              return;
-          }
-
-          const processed = await Promise.all(allLogs.map(async (log) => {
-              try {
-                  const parsed = iface.parseLog(log);
-                  
-                  if (parsed.name === "WinnerPicked") {
-                      const { token, roundId, winner, prize } = parsed.args;
-                      
-                      let symbol = 'UNK';
-                      if(token && token.toLowerCase() === CONFIG.tokens.USDC.address.toLowerCase()) symbol = 'USDC';
-                      if(token && token.toLowerCase() === CONFIG.tokens.EURC.address.toLowerCase()) symbol = 'EURC';
-                      
-                      let dateStr = 'Recent';
-                      try {
-                          const block = await prov.getBlock(log.blockNumber);
-                          if(block) dateStr = new Date(block.timestamp * 1000).toLocaleDateString();
-                      } catch(e) {}
-
-                      return {
-                          txHash: log.transactionHash,
-                          winner,
-                          prize: window.ethers.utils.formatUnits(prize, 6),
-                          symbol,
-                          date: dateStr,
-                          roundId: roundId.toString(),
-                          blockNumber: log.blockNumber
-                      };
-                  } 
-                  return null;
-              } catch (err) { return null; }
-          }));
-          
-          const validHistory = processed.filter(i => i !== null).sort((a,b) => b.blockNumber - a.blockNumber);
-          setHistory(validHistory);
-
       } catch(e) { 
-          addLog(`Erro Histórico: ${e.message}`); 
+          console.error("History Fatal Error", e);
       } finally { 
           setHistoryLoading(false); 
       }
@@ -319,7 +322,36 @@ export default function App() {
     return () => clearInterval(t);
   }, [nextDraw]);
 
-  // --- TRANSACTIONS ---
+  // --- TRANSACTIONS & CONNECT (Mobile Optimized) ---
+  
+  const connectWallet = async () => {
+    // 1. PC/Wallet Browser (Injected)
+    if (window.ethereum) {
+        try {
+          const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (accs.length > 0) {
+            const p = new window.ethers.providers.Web3Provider(window.ethereum);
+            const s = p.getSigner(accs[0]);
+            await s.signMessage(`Login LuckyDay ${Date.now()}`);
+            setAccount(accs[0]);
+            setSigner(s);
+          }
+        } catch (e) { showFeedback('error', 'Connection Cancelled'); }
+        return;
+    }
+
+    // 2. Mobile Browser (Deep Linking)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+        const currentUrl = window.location.href.replace('https://', '').replace('http://', '');
+        // Tenta abrir direto no app MetaMask
+        const link = `https://metamask.app.link/dapp/${currentUrl}`;
+        window.location.href = link;
+    } else {
+        // 3. Desktop sem carteira
+        window.open("https://metamask.io/download/", "_blank");
+    }
+  };
   
   const buyTicket = async (symbol) => {
       if(!signer) return connectWallet();
@@ -360,20 +392,6 @@ export default function App() {
           setTimeout(() => { fetchData(signer, readProvider); fetchHistory(signer, readProvider); }, 3000);
       } catch(e) { showFeedback('error', 'Draw Failed'); }
       finally { setLoading(false); }
-  };
-
-  const connectWallet = async () => {
-    if (!window.ethereum) return;
-    try {
-      const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      if (accs.length > 0) {
-        const p = new window.ethers.providers.Web3Provider(window.ethereum);
-        const s = p.getSigner(accs[0]);
-        await s.signMessage(`Login LuckyDay ${Date.now()}`);
-        setAccount(accs[0]);
-        setSigner(s);
-      }
-    } catch (e) {}
   };
 
   const disconnectWallet = () => {

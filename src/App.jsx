@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Terminal, Smartphone, X, Plus } from 'lucide-react';
+import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, X, Plus } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
   chainId: 5042002, 
-  chainIdHex: '0x4cef52', // CORREÇÃO: Hex exato para 5042002
   rpcUrl: "https://rpc.testnet.arc.network", 
-  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
-  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -188,9 +185,13 @@ export default function App() {
           setNextDraw(drawTime.toNumber());
           setMaxTickets(max.toNumber());
 
+          // PROTEÇÃO: Garante que é array antes de mapear
+          const safeUsdcPlayers = Array.isArray(usdcPlayers) ? usdcPlayers : [];
+          const safeEurcPlayers = Array.isArray(eurcPlayers) ? eurcPlayers : [];
+
           const combinedPlayers = [
-              ...(usdcPlayers || []).map(addr => ({ address: addr, symbol: 'USDC' })),
-              ...(eurcPlayers || []).map(addr => ({ address: addr, symbol: 'EURC' }))
+              ...safeUsdcPlayers.map(addr => ({ address: addr, symbol: 'USDC' })),
+              ...safeEurcPlayers.map(addr => ({ address: addr, symbol: 'EURC' }))
           ];
           setParticipants(combinedPlayers);
 
@@ -427,38 +428,6 @@ export default function App() {
       setTimeout(() => setFeedback(null), 4000);
   };
 
-  const switchNetwork = async () => {
-      if(!window.ethereum) return;
-      try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: CONFIG.chainIdHex }], // CORREÇÃO: USAR HEXAG
-          });
-          setWrongNetwork(false);
-      } catch (switchError) {
-          if (switchError.code === 4902) {
-              try {
-                  await window.ethereum.request({
-                      method: 'wallet_addEthereumChain',
-                      params: [{
-                          chainId: CONFIG.chainIdHex,
-                          chainName: 'Arc Testnet',
-                          nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-                          rpcUrls: ['https://rpc.testnet.arc.network'],
-                          blockExplorerUrls: ['https://testnet.arcscan.app']
-                      }],
-                  });
-              } catch (addError) { console.error(addError); }
-          }
-      }
-  };
-
-  const copyUrl = () => {
-      const url = window.location.href;
-      navigator.clipboard.writeText(url);
-      showFeedback('success', 'URL copied!');
-  };
-
   const formatAddress = (addr) => {
       if (typeof addr !== 'string') return '...';
       return `${addr.substring(0,6)}...${addr.slice(-4)}`;
@@ -469,19 +438,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 pb-20">
       
-      {/* MOBILE WARNING BANNER */}
-      {isMobileBrowser && (
-          <div className="bg-amber-500 text-amber-950 px-4 py-3 text-sm font-bold flex justify-between items-center sticky top-0 z-[100] shadow-lg">
-              <span className="flex-1 mr-2">
-                  <Smartphone className="inline w-4 h-4 mr-1 mb-0.5"/> 
-                  For best experience, open this link in your Wallet App Browser (MetaMask/Rabby).
-              </span>
-              <button onClick={copyUrl} className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded flex items-center gap-1 text-xs">
-                  <Copy size={12}/> Copy Link
-              </button>
-          </div>
-      )}
-
       {/* Navbar */}
       <nav className="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between relative">
@@ -493,7 +449,7 @@ export default function App() {
           </div>
           
           {/* LIVE BADGE - CENTERED */}
-          <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]"></div>
              <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">Live on Arc Testnet</span>
           </div>
@@ -525,20 +481,9 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-12 relative">
         
         {wrongNetwork && (
-            <div className="mb-8 p-6 bg-red-500/10 border border-red-500/30 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
-                <div className="flex items-center gap-4 text-red-400">
-                    <div className="p-3 bg-red-500/20 rounded-full"><AlertTriangle className="w-6 h-6"/></div>
-                    <div>
-                        <p className="font-bold text-lg">Wrong Network Detected</p>
-                        <p className="text-sm opacity-80">Please switch your wallet to Arc Testnet to play.</p>
-                    </div>
-                </div>
-                <button 
-                    onClick={switchNetwork} 
-                    className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
-                >
-                    <Plus size={16}/> Switch to Arc Testnet
-                </button>
+            <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center gap-3 text-red-400 animate-pulse">
+                <AlertTriangle className="w-5 h-5"/> 
+                <span className="font-bold">Wrong Network! Please switch to Arc Testnet.</span>
             </div>
         )}
 

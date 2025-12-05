@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, Copy, Plus } from 'lucide-react';
+import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Terminal, Smartphone, X, Plus } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
   chainId: 5042002, 
+  chainIdHex: '0x4cef52', // CORREÇÃO: Hex exato para 5042002
   rpcUrl: "https://rpc.testnet.arc.network", 
+  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
+  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -63,7 +66,6 @@ export default function App() {
   const [walletProvider, setWalletProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [wrongNetwork, setWrongNetwork] = useState(false);
-  const [isMobileBrowser, setIsMobileBrowser] = useState(false);
   
   // Data State
   const [pools, setPools] = useState({
@@ -83,6 +85,10 @@ export default function App() {
   const [loading, setLoading] = useState(false); 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+
+  // DEBUG LOGS (Console only)
+  const addLog = (msg) => console.log(`[LuckyDay] ${msg}`);
 
   // Init
   useEffect(() => {
@@ -96,25 +102,18 @@ export default function App() {
 
   const initProviders = async () => {
       setLibLoaded(true);
-      
-      // Detectar Mobile sem Web3 (Chrome/Safari normal)
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const hasWallet = window.ethereum;
-      
-      if (isMobile && !hasWallet) {
-          setIsMobileBrowser(true);
-      }
-
       let rProvider;
       if (window.ethereum) {
           rProvider = new window.ethers.providers.Web3Provider(window.ethereum);
           setWalletProvider(rProvider);
           const network = await rProvider.getNetwork();
           if (network.chainId !== CONFIG.chainId) setWrongNetwork(true);
+          addLog(`MetaMask Connected (Chain ${network.chainId})`);
       } else {
           try {
             rProvider = new window.ethers.providers.StaticJsonRpcProvider(CONFIG.rpcUrl, { chainId: CONFIG.chainId, name: 'arc-testnet' });
-          } catch(e) {}
+            addLog(`Static RPC Connected`);
+          } catch(e) { addLog(`RPC Error: ${e.message}`); }
       }
       setReadProvider(rProvider);
       if (rProvider) { fetchData(null, rProvider); fetchHistory(null, rProvider); }
@@ -221,7 +220,7 @@ export default function App() {
               }
           });
 
-      } catch (e) { console.error("Fetch Data Error", e); }
+      } catch (e) { addLog(`Fetch Data Error: ${e.message}`); }
   };
 
   // --- HISTORY FETCH (REVERSE SCANNING + LIMIT) ---
@@ -374,6 +373,7 @@ export default function App() {
   };
 
   const connectWallet = async () => {
+    // 1. PC/Wallet Browser (Injected)
     if (window.ethereum) {
         try {
           const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
@@ -387,6 +387,35 @@ export default function App() {
         } catch (e) { showFeedback('error', 'Connection Cancelled'); }
         return;
     }
+
+    // 2. Mobile without Injected Wallet -> Show Menu
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+        setShowMobileMenu(true);
+    } else {
+        // 3. Desktop sem carteira
+        window.open("https://metamask.io/download/", "_blank");
+    }
+  };
+
+  const handleMobileConnect = (type) => {
+      // Remove protocolo para URL limpa (ex: lucky-day.netlify.app)
+      const currentUrl = window.location.href.replace('https://', '').replace('http://', '').split('/')[0];
+      let link = '';
+      
+      if (type === 'metamask') {
+          // Protocolo MetaMask: metamask://dapp/URL
+          link = `metamask://dapp/${currentUrl}`;
+      } else if (type === 'rabby') {
+          // Usando o link oficial da Rabby que redireciona se app instalado
+          link = `https://rabby.io/`; 
+      } else if (type === 'generic') {
+          // Protocolo Genérico para outras wallets
+          link = `dapp://${currentUrl}`;
+      }
+      
+      if (link) window.location.href = link;
+      setShowMobileMenu(false);
   };
 
   const disconnectWallet = () => {
@@ -403,17 +432,16 @@ export default function App() {
       try {
           await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
-            params: [{ chainId: '0x4cefba' }], // 5042002 in hex
+            params: [{ chainId: CONFIG.chainIdHex }], // CORREÇÃO: USAR HEXAG
           });
           setWrongNetwork(false);
       } catch (switchError) {
-          // This error code indicates that the chain has not been added to MetaMask.
           if (switchError.code === 4902) {
               try {
                   await window.ethereum.request({
                       method: 'wallet_addEthereumChain',
                       params: [{
-                          chainId: '0x4cefba',
+                          chainId: CONFIG.chainIdHex,
                           chainName: 'Arc Testnet',
                           nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
                           rpcUrls: ['https://rpc.testnet.arc.network'],
@@ -464,7 +492,7 @@ export default function App() {
             <span className="font-bold text-2xl text-white tracking-tight">Lucky<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-400">Day</span></span>
           </div>
           
-          {/* LIVE BADGE - CENTERED (Desktop Only) */}
+          {/* LIVE BADGE - CENTERED */}
           <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]"></div>
              <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">Live on Arc Testnet</span>
@@ -518,6 +546,50 @@ export default function App() {
             <div className={`fixed top-24 right-4 px-6 py-4 rounded-xl border flex items-center gap-3 z-50 shadow-2xl animate-in slide-in-from-right fade-in duration-300 ${feedback.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200' : 'bg-blue-950/90 border-blue-500/50 text-blue-200'}`}>
                 {feedback.type === 'success' ? <CheckCircle2 size={20}/> : <Info size={20}/>}
                 <span className="font-medium">{feedback.message}</span>
+            </div>
+        )}
+
+        {/* MOBILE WALLET MENU MODAL */}
+        {showMobileMenu && (
+            <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
+                    <button 
+                        onClick={() => setShowMobileMenu(false)}
+                        className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white"
+                    >
+                        <X size={24} />
+                    </button>
+                    
+                    <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                        <Smartphone className="text-emerald-400"/> Connect Mobile
+                    </h3>
+                    <p className="text-slate-400 text-sm mb-6">Choose your preferred wallet app to open LuckyDay.</p>
+                    
+                    <div className="space-y-3">
+                        <button 
+                            onClick={() => handleMobileConnect('metamask')}
+                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white group"
+                        >
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="MetaMask"/>
+                            Open MetaMask
+                        </button>
+                        
+                        <button 
+                            onClick={() => handleMobileConnect('rabby')}
+                            className="w-full py-4 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-indigo-200 group"
+                        >
+                            <img src="https://rabby.io/assets/logo.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Rabby" onError={(e) => e.target.style.display='none'}/>
+                            <span className="flex items-center gap-2"><Zap size={16}/> Open Rabby</span>
+                        </button>
+
+                         <button 
+                            onClick={() => handleMobileConnect('generic')}
+                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-slate-300 group"
+                        >
+                            <span className="flex items-center gap-2">Other Wallets</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         )}
 

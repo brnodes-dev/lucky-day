@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, X, Copy } from 'lucide-react';
+import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, X, Copy, Plus } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
   chainId: 5042002, 
+  chainIdHex: '0x4cef52', // Hex para 5042002 (Arc Testnet)
   rpcUrl: "https://rpc.testnet.arc.network", 
-  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
-  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -16,7 +15,7 @@ const CONFIG = {
   }
 };
 
-// ABI JSON COMPLETA
+// ABI JSON
 const LOTTERY_ABI = [
   {"inputs":[{"internalType":"address","name":"_token","type":"address"}],"name":"buyTicket","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[],"name":"ticketPrice","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
@@ -84,10 +83,9 @@ export default function App() {
   const [loading, setLoading] = useState(false); 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-
-  // DEBUG LOGS (Console only)
-  const addLog = (msg) => console.log(`[LuckyDay] ${msg}`);
+  
+  // Mobile Modal State
+  const [showMobileInstructions, setShowMobileInstructions] = useState(false);
 
   // Init
   useEffect(() => {
@@ -107,12 +105,10 @@ export default function App() {
           setWalletProvider(rProvider);
           const network = await rProvider.getNetwork();
           if (network.chainId !== CONFIG.chainId) setWrongNetwork(true);
-          addLog(`MetaMask Connected (Chain ${network.chainId})`);
       } else {
           try {
             rProvider = new window.ethers.providers.StaticJsonRpcProvider(CONFIG.rpcUrl, { chainId: CONFIG.chainId, name: 'arc-testnet' });
-            addLog(`Static RPC Connected`);
-          } catch(e) { addLog(`RPC Error: ${e.message}`); }
+          } catch(e) {}
       }
       setReadProvider(rProvider);
       if (rProvider) { fetchData(null, rProvider); fetchHistory(null, rProvider); }
@@ -144,6 +140,9 @@ export default function App() {
              setIsOwnerWallet(false); 
          }
       });
+      
+      // Auto-reload on chain change
+      window.ethereum.on('chainChanged', () => window.location.reload());
     }
   }, [libLoaded]);
 
@@ -165,7 +164,90 @@ export default function App() {
       } catch(e) {}
   };
 
-  // --- CORE DATA ---
+  // --- ACTIONS ---
+
+  const switchNetwork = async () => {
+    if(!window.ethereum) return;
+    try {
+        // Tenta mudar para a rede
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: CONFIG.chainIdHex }],
+        });
+        setWrongNetwork(false);
+    } catch (switchError) {
+        // Se a rede não existe (erro 4902), adiciona ela
+        if (switchError.code === 4902) {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: CONFIG.chainIdHex,
+                        chainName: 'Arc Testnet',
+                        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+                        rpcUrls: [CONFIG.rpcUrl],
+                        blockExplorerUrls: ['https://testnet.arcscan.app']
+                    }],
+                });
+            } catch (addError) { console.error(addError); }
+        }
+    }
+  };
+
+  const connectWallet = async () => {
+    // 1. Desktop ou Navegador de Carteira (Injected)
+    if (window.ethereum) {
+        try {
+          const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (accs.length > 0) {
+            const p = new window.ethers.providers.Web3Provider(window.ethereum);
+            const s = p.getSigner(accs[0]);
+            
+            // Check Network immediately
+            const net = await p.getNetwork();
+            if(net.chainId !== CONFIG.chainId) setWrongNetwork(true);
+
+            await s.signMessage(`Login LuckyDay ${Date.now()}`);
+            setAccount(accs[0]);
+            setSigner(s);
+          }
+        } catch (e) { showFeedback('error', 'Connection Cancelled'); }
+        return;
+    }
+
+    // 2. Mobile sem carteira injetada (Chrome/Safari padrão)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+        setShowMobileInstructions(true);
+    } else {
+        window.open("https://metamask.io/download/", "_blank");
+    }
+  };
+
+  const copyUrl = () => {
+      const url = window.location.href;
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+          document.execCommand('copy');
+          showFeedback('success', 'URL copied!');
+      } catch (err) { }
+      document.body.removeChild(textArea);
+  };
+
+  const disconnectWallet = () => {
+    setAccount(''); setSigner(null); setIsAdminLoggedIn(false); setIsOwnerWallet(false);
+  };
+
+  const showFeedback = (type, msg) => {
+      setFeedback({ type, message: msg });
+      setTimeout(() => setFeedback(null), 4000);
+  };
+
+  // --- CORE DATA & HISTORY ---
   const fetchData = async (sgn, prov) => {
       if(!prov) return;
       try {
@@ -219,18 +301,14 @@ export default function App() {
               }
           });
 
-      } catch (e) { addLog(`Fetch Data Error: ${e.message}`); }
+      } catch (e) {}
   };
 
-  // --- HISTORY FETCH (REVERSE SCANNING + LIMIT) ---
   const fetchHistory = async (sgn, prov) => {
       if(!prov) return;
       setHistoryLoading(true);
-      
       try {
           const lottery = new window.ethers.Contract(CONFIG.contractAddress, LOTTERY_ABI, prov);
-          const iface = new window.ethers.utils.Interface(LOTTERY_ABI);
-          
           const currentBlock = await prov.getBlockNumber();
           const startBlock = CONFIG.startBlock;
           const CHUNK_SIZE = 3000;
@@ -241,22 +319,22 @@ export default function App() {
           for (let to = currentBlock; to > startBlock; to -= CHUNK_SIZE) {
               let from = to - CHUNK_SIZE;
               if (from < startBlock) from = startBlock;
-              
               if (foundWinners.length >= MAX_WINNERS) break;
 
               try {
                   await new Promise(r => setTimeout(r, 200));
-
                   const chunkLogs = await prov.getLogs({
                       fromBlock: from,
                       toBlock: to,
                       address: CONFIG.contractAddress
                   });
-
                   const reversedLogs = chunkLogs.reverse();
 
                   for (let log of reversedLogs) {
                       try {
+                          // Decodificação Manual (Parsing)
+                          // Precisamos criar a interface aqui para garantir que temos acesso
+                          const iface = new window.ethers.utils.Interface(LOTTERY_ABI);
                           const parsed = iface.parseLog(log);
                           
                           if (parsed.name === "WinnerPicked") {
@@ -268,7 +346,6 @@ export default function App() {
 
                               let dateStr = 'Recent';
                               let timestamp = Date.now() / 1000;
-                              
                               try {
                                   const block = await prov.getBlock(log.blockNumber);
                                   if(block) {
@@ -287,30 +364,22 @@ export default function App() {
                                   blockNumber: log.blockNumber,
                                   timestamp
                               };
-
                               foundWinners.push(winnerData);
                               
                               setHistory(prev => {
                                   const exists = prev.find(p => p.txHash === winnerData.txHash && p.symbol === winnerData.symbol);
                                   if (exists) return prev;
-                                  const newHistory = [...prev, winnerData];
-                                  return newHistory.sort((a,b) => b.blockNumber - a.blockNumber);
+                                  return [...prev, winnerData].sort((a,b) => b.blockNumber - a.blockNumber);
                               });
 
                               if (foundWinners.length >= MAX_WINNERS) break;
                           }
                       } catch (err) { }
                   }
-              } catch (chunkErr) {
-                  console.error("Chunk Error", chunkErr);
-              }
+              } catch (chunkErr) {}
           }
-          
-      } catch(e) { 
-          console.error("History Fatal Error", e);
-      } finally { 
-          setHistoryLoading(false); 
-      }
+      } catch(e) { console.error(e); } 
+      finally { setHistoryLoading(false); }
   };
 
   useEffect(() => {
@@ -328,10 +397,11 @@ export default function App() {
     return () => clearInterval(t);
   }, [nextDraw]);
 
-  // --- TRANSACTIONS & CONNECT ---
-  
+  // Transaction Wrappers
   const buyTicket = async (symbol) => {
       if(!signer) return connectWallet();
+      if(wrongNetwork) return showFeedback('error', 'Wrong Network');
+
       setLoading(symbol);
       try {
           const tokenConfig = CONFIG.tokens[symbol];
@@ -360,6 +430,8 @@ export default function App() {
 
   const forceDraw = async () => {
       if(!signer) return;
+      if(wrongNetwork) return showFeedback('error', 'Wrong Network');
+      
       setLoading('DRAW');
       try {
           const lottery = new window.ethers.Contract(CONFIG.contractAddress, LOTTERY_ABI, signer);
@@ -371,57 +443,16 @@ export default function App() {
       finally { setLoading(false); }
   };
 
-  // --- MOBILE CONNECT (COPY LINK UPDATE) ---
-  const connectWallet = async () => {
-    // 1. PC/Wallet Browser (Injected)
-    if (window.ethereum) {
-        try {
-          const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
-          if (accs.length > 0) {
-            const p = new window.ethers.providers.Web3Provider(window.ethereum);
-            const s = p.getSigner(accs[0]);
-            await s.signMessage(`Login LuckyDay ${Date.now()}`);
-            setAccount(accs[0]);
-            setSigner(s);
-          }
-        } catch (e) { showFeedback('error', 'Connection Cancelled'); }
-        return;
+  const adminLogin = async () => {
+    if (!signer) return;
+    try {
+      const message = "LuckyDay Admin Access: " + new Date().toISOString().split('T')[0];
+      await signer.signMessage(message);
+      setIsAdminLoggedIn(true);
+      showFeedback('success', 'Admin access granted.');
+    } catch (err) {
+      showFeedback('error', 'Access denied.');
     }
-
-    // 2. Mobile without Injected Wallet -> Show Modal
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-        setShowMobileMenu(true);
-    } else {
-        window.open("https://metamask.io/download/", "_blank");
-    }
-  };
-
-  const copyUrl = () => {
-      const url = window.location.href;
-      // Uso de execCommand para compatibilidade com iFrames
-      const textArea = document.createElement("textarea");
-      textArea.value = url;
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      try {
-          document.execCommand('copy');
-          showFeedback('success', 'URL copied! Open in Wallet Browser.');
-      } catch (err) {
-          showFeedback('error', 'Failed to copy URL');
-      }
-      document.body.removeChild(textArea);
-      setShowMobileMenu(false);
-  };
-
-  const disconnectWallet = () => {
-    setAccount(''); setSigner(null); setIsAdminLoggedIn(false); setIsOwnerWallet(false);
-  };
-
-  const showFeedback = (type, msg) => {
-      setFeedback({ type, message: msg });
-      setTimeout(() => setFeedback(null), 4000);
   };
 
   const formatAddress = (addr) => {
@@ -444,7 +475,7 @@ export default function App() {
             <span className="font-bold text-2xl text-white tracking-tight">Lucky<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-400">Day</span></span>
           </div>
           
-          {/* LIVE BADGE - CENTERED */}
+          {/* LIVE BADGE */}
           <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]"></div>
              <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">Live on Arc Testnet</span>
@@ -452,9 +483,7 @@ export default function App() {
 
           <div className="flex items-center gap-3">
              {isOwnerWallet && !isAdminLoggedIn && (
-                <button onClick={async () => {
-                    try { await signer.signMessage("Admin Login"); setIsAdminLoggedIn(true); } catch(e){}
-                }} className="text-xs font-bold border border-amber-500 text-amber-500 px-4 py-2 rounded-full hover:bg-amber-500/10 flex items-center gap-2 transition-all">
+                <button onClick={adminLogin} className="text-xs font-bold border border-amber-500 text-amber-500 px-4 py-2 rounded-full hover:bg-amber-500/10 flex items-center gap-2 transition-all">
                     <Lock size={14}/> Admin
                 </button>
              )}
@@ -476,10 +505,22 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-12 relative">
         
+        {/* WRONG NETWORK ALERT + ACTION BUTTON */}
         {wrongNetwork && (
-            <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center gap-3 text-red-400 animate-pulse">
-                <AlertTriangle className="w-5 h-5"/> 
-                <span className="font-bold">Wrong Network! Please switch to Arc Testnet.</span>
+            <div className="mb-8 p-6 bg-red-500/10 border border-red-500/30 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-4 text-red-400">
+                    <div className="p-3 bg-red-500/20 rounded-full"><AlertTriangle className="w-6 h-6"/></div>
+                    <div>
+                        <p className="font-bold text-lg">Wrong Network Detected</p>
+                        <p className="text-sm opacity-80">Please switch your wallet to Arc Testnet to play.</p>
+                    </div>
+                </div>
+                <button 
+                    onClick={switchNetwork} 
+                    className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+                >
+                    <Plus size={16}/> Switch to Arc Testnet
+                </button>
             </div>
         )}
 
@@ -490,22 +531,24 @@ export default function App() {
             </div>
         )}
 
-        {/* MOBILE WALLET MENU MODAL (UPDATED) */}
-        {showMobileMenu && (
+        {/* MOBILE WALLET INSTRUCTIONS MODAL */}
+        {showMobileInstructions && (
             <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
+                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative text-center">
                     <button 
-                        onClick={() => setShowMobileMenu(false)}
+                        onClick={() => setShowMobileInstructions(false)}
                         className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white"
                     >
                         <X size={24} />
                     </button>
                     
-                    <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                        <Smartphone className="text-emerald-400"/> Mobile Wallet
-                    </h3>
+                    <div className="bg-emerald-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                        <Smartphone className="w-8 h-8 text-emerald-400"/>
+                    </div>
+                    
+                    <h3 className="text-xl font-bold text-white mb-2">Connect Mobile Wallet</h3>
                     <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                        This dApp works best inside your wallet's built-in browser (MetaMask, Rabby, etc).
+                        LuckyDay works best inside your wallet's built-in browser (MetaMask, Rabby, etc).
                     </p>
                     
                     <button 
@@ -516,7 +559,9 @@ export default function App() {
                     </button>
                     
                     <div className="mt-4 text-center text-xs text-slate-500">
-                        Paste this link in your wallet app's browser.
+                        1. Copy Link above<br/>
+                        2. Open MetaMask or Rabby App<br/>
+                        3. Paste in the internal Browser
                     </div>
                 </div>
             </div>
@@ -525,47 +570,27 @@ export default function App() {
         {/* ADMIN PANEL */}
         {isAdminLoggedIn && (
           <div className="mb-12 border border-amber-500/30 bg-amber-900/10 rounded-3xl p-6 relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-4 opacity-10">
-                <UserCog className="w-24 h-24 text-amber-500" />
-             </div>
-             
              <div className="relative z-10">
                <div className="flex items-center gap-3 mb-6">
-                 <div className="p-2 bg-amber-500/20 rounded-lg">
-                   <UserCog className="w-6 h-6 text-amber-400" />
-                 </div>
+                 <div className="p-2 bg-amber-500/20 rounded-lg"><UserCog className="w-6 h-6 text-amber-400" /></div>
                  <h2 className="text-2xl font-bold text-amber-400">Admin Panel</h2>
                </div>
-
                <div className="grid md:grid-cols-2 gap-8">
-                 {/* Info */}
                  <div className="bg-slate-950/50 rounded-xl p-4 border border-amber-500/20">
                     <h3 className="font-bold text-slate-300 mb-4 text-sm uppercase tracking-wider">Status</h3>
                     <div className="space-y-2">
                         <p className="text-sm text-slate-400">USDC Players: <span className="text-white">{pools.USDC.players}</span></p>
                         <p className="text-sm text-slate-400">EURC Players: <span className="text-white">{pools.EURC.players}</span></p>
-                        <p className="text-sm text-slate-400">Pool Total: <span className="text-white">{pools.USDC.pot} USDC + {pools.EURC.pot} EURC</span></p>
                     </div>
                  </div>
-
-                 {/* Draw Control */}
                  <div className="flex flex-col justify-between">
                     <div className="mb-4">
                        <p className="text-sm text-slate-400">Draw Status:</p>
                        <p className="text-xl font-mono text-white mt-1">{timeLeft}</p>
                     </div>
-                    
-                    <button
-                      onClick={forceDraw}
-                      disabled={loading}
-                      className="w-full py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-xl font-bold shadow-lg shadow-amber-900/20 flex items-center justify-center gap-2 transition-all"
-                    >
-                      {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <Gavel className="w-5 h-5" />}
-                      Trigger Draw Now
+                    <button onClick={forceDraw} disabled={loading} className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold flex items-center justify-center gap-2">
+                      {loading ? <RefreshCcw className="animate-spin w-5 h-5"/> : <Gavel className="w-5 h-5" />} Trigger Draw Now
                     </button>
-                    <p className="text-[10px] text-amber-500/60 mt-2 text-center">
-                       Warning: This will execute the draw immediately, distribute prizes, and reset the lottery. Use with caution.
-                    </p>
                  </div>
                </div>
              </div>
@@ -590,64 +615,37 @@ export default function App() {
             
             {/* ---- USDC COLUMN ---- */}
             <div className="flex flex-col gap-6">
-                {/* USDC BUY CARD */}
                 <div className="bg-slate-900 border border-blue-500/20 rounded-[2rem] overflow-hidden relative group hover:border-blue-500/40 transition-all">
                     <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                     <div className="p-8">
                         <div className="flex justify-between items-start mb-6">
                             <div className="flex items-center gap-3">
-                                <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                                    <Coins className="w-6 h-6 text-blue-400" />
-                                </div>
-                                <div>
-                                    <h2 className="text-2xl font-bold text-white">USDC Pool</h2>
-                                    <p className="text-blue-400 text-xs font-bold tracking-wider uppercase">1.00 USDC Entry</p>
-                                </div>
+                                <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20"><Coins className="w-6 h-6 text-blue-400" /></div>
+                                <div><h2 className="text-2xl font-bold text-white">USDC Pool</h2><p className="text-blue-400 text-xs font-bold tracking-wider uppercase">1.00 USDC Entry</p></div>
                             </div>
-                            <div className="text-right">
-                                <p className="text-xs text-slate-500 font-bold uppercase">Win Estimate</p>
-                                <p className="text-3xl font-bold text-white">{pools.USDC.pot} <span className="text-sm text-slate-500">USDC</span></p>
-                            </div>
+                            <div className="text-right"><p className="text-xs text-slate-500 font-bold uppercase">Win Estimate</p><p className="text-3xl font-bold text-white">{pools.USDC.pot} <span className="text-sm text-slate-500">USDC</span></p></div>
                         </div>
-
                         <div className="space-y-4">
                             <div className="flex justify-between text-sm p-4 bg-slate-950 rounded-xl border border-slate-800">
                                 <span className="text-slate-400">Your Tickets</span>
-                                <span className="font-mono text-white font-bold">
-                                    <span className={pools.USDC.userTickets >= maxTickets ? "text-red-400" : "text-blue-400"}>{pools.USDC.userTickets}</span>/{maxTickets}
-                                </span>
+                                <span className="font-mono text-white font-bold"><span className={pools.USDC.userTickets >= maxTickets ? "text-red-400" : "text-blue-400"}>{pools.USDC.userTickets}</span>/{maxTickets}</span>
                             </div>
-                            
-                            <button 
-                                onClick={() => buyTicket('USDC')}
-                                disabled={loading || !account || pools.USDC.userTickets >= maxTickets}
-                                className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex justify-center items-center gap-2 shadow-lg shadow-blue-900/20"
-                            >
-                                {loading === 'USDC' ? <RefreshCcw className="animate-spin"/> : <Ticket/>}
-                                {pools.USDC.userTickets >= maxTickets ? 'Limit Reached' : 'Enter USDC Draw'}
+                            <button onClick={() => buyTicket('USDC')} disabled={loading || !account || pools.USDC.userTickets >= maxTickets} className="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex justify-center items-center gap-2 shadow-lg shadow-blue-900/20">
+                                {loading === 'USDC' ? <RefreshCcw className="animate-spin"/> : <Ticket/>}{pools.USDC.userTickets >= maxTickets ? 'Limit Reached' : 'Enter USDC Draw'}
                             </button>
                         </div>
                     </div>
                 </div>
-
-                {/* USDC PLAYERS LIST */}
+                {/* USDC LIST */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-[2rem] p-6 flex flex-col h-[300px] relative overflow-hidden">
-                    <div className="flex items-center gap-3 mb-6">
-                        <Trophy className="w-5 h-5 text-blue-400"/>
-                        <h3 className="font-bold text-white">USDC Players <span className="text-slate-500 ml-2 text-sm font-normal">({pools.USDC.players})</span></h3>
-                    </div>
-                    
+                    <div className="flex items-center gap-3 mb-6"><Trophy className="w-5 h-5 text-blue-400"/><h3 className="font-bold text-white">USDC Players <span className="text-slate-500 ml-2 text-sm font-normal">({pools.USDC.players})</span></h3></div>
                     <div className="space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2 -mr-2">
                         {participants.filter(p => p.symbol === 'USDC').length > 0 ? participants.filter(p => p.symbol === 'USDC').map((p, i) => (
                             <div key={i} className="flex justify-between items-center p-3 bg-slate-950 rounded-xl border border-slate-800 hover:border-blue-500/30 transition-colors">
                                 <span className="font-mono text-sm text-slate-400">{formatAddress(p.address)}</span>
                                 <span className="text-xs bg-blue-500/10 text-blue-400 px-2 py-1 rounded border border-blue-500/20 font-bold">Ticket #{i+1}</span>
                             </div>
-                        )) : (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-40">
-                                <p className="text-sm">No players yet.</p>
-                            </div>
-                        )}
+                        )) : <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-40"><p className="text-sm">No players yet.</p></div>}
                     </div>
                 </div>
             </div>
@@ -660,62 +658,35 @@ export default function App() {
                     <div className="p-8">
                         <div className="flex justify-between items-start mb-6">
                             <div className="flex items-center gap-3">
-                                <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                                    <Coins className="w-6 h-6 text-emerald-400" />
-                                </div>
-                                <div>
-                                    <h2 className="text-2xl font-bold text-white">EURC Pool</h2>
-                                    <p className="text-emerald-400 text-xs font-bold tracking-wider uppercase">1.00 EURC Entry</p>
-                                </div>
+                                <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20"><Coins className="w-6 h-6 text-emerald-400" /></div>
+                                <div><h2 className="text-2xl font-bold text-white">EURC Pool</h2><p className="text-emerald-400 text-xs font-bold tracking-wider uppercase">1.00 EURC Entry</p></div>
                             </div>
-                            <div className="text-right">
-                                <p className="text-xs text-slate-500 font-bold uppercase">Win Estimate</p>
-                                <p className="text-3xl font-bold text-white">{pools.EURC.pot} <span className="text-sm text-slate-500">EURC</span></p>
-                            </div>
+                            <div className="text-right"><p className="text-xs text-slate-500 font-bold uppercase">Win Estimate</p><p className="text-3xl font-bold text-white">{pools.EURC.pot} <span className="text-sm text-slate-500">EURC</span></p></div>
                         </div>
-
                         <div className="space-y-4">
                             <div className="flex justify-between text-sm p-4 bg-slate-950 rounded-xl border border-slate-800">
                                 <span className="text-slate-400">Your Tickets</span>
-                                <span className="font-mono text-white font-bold">
-                                    <span className={pools.EURC.userTickets >= maxTickets ? "text-red-400" : "text-emerald-400"}>{pools.EURC.userTickets}</span>/{maxTickets}
-                                </span>
+                                <span className="font-mono text-white font-bold"><span className={pools.EURC.userTickets >= maxTickets ? "text-red-400" : "text-emerald-400"}>{pools.EURC.userTickets}</span>/{maxTickets}</span>
                             </div>
-                            
-                            <button 
-                                onClick={() => buyTicket('EURC')}
-                                disabled={loading || !account || pools.EURC.userTickets >= maxTickets}
-                                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex justify-center items-center gap-2 shadow-lg shadow-emerald-900/20"
-                            >
-                                {loading === 'EURC' ? <RefreshCcw className="animate-spin"/> : <Ticket/>}
-                                {pools.EURC.userTickets >= maxTickets ? 'Limit Reached' : 'Enter EURC Draw'}
+                            <button onClick={() => buyTicket('EURC')} disabled={loading || !account || pools.EURC.userTickets >= maxTickets} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex justify-center items-center gap-2 shadow-lg shadow-emerald-900/20">
+                                {loading === 'EURC' ? <RefreshCcw className="animate-spin"/> : <Ticket/>}{pools.EURC.userTickets >= maxTickets ? 'Limit Reached' : 'Enter EURC Draw'}
                             </button>
                         </div>
                     </div>
                 </div>
-
-                {/* EURC PLAYERS LIST */}
+                {/* EURC LIST */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-[2rem] p-6 flex flex-col h-[300px] relative overflow-hidden">
-                    <div className="flex items-center gap-3 mb-6">
-                        <Trophy className="w-5 h-5 text-emerald-400"/>
-                        <h3 className="font-bold text-white">EURC Players <span className="text-slate-500 ml-2 text-sm font-normal">({pools.EURC.players})</span></h3>
-                    </div>
-                    
+                    <div className="flex items-center gap-3 mb-6"><Trophy className="w-5 h-5 text-emerald-400"/><h3 className="font-bold text-white">EURC Players <span className="text-slate-500 ml-2 text-sm font-normal">({pools.EURC.players})</span></h3></div>
                     <div className="space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2 -mr-2">
                         {participants.filter(p => p.symbol === 'EURC').length > 0 ? participants.filter(p => p.symbol === 'EURC').map((p, i) => (
                             <div key={i} className="flex justify-between items-center p-3 bg-slate-950 rounded-xl border border-slate-800 hover:border-emerald-500/30 transition-colors">
                                 <span className="font-mono text-sm text-slate-400">{formatAddress(p.address)}</span>
                                 <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded border border-emerald-500/20 font-bold">Ticket #{i+1}</span>
                             </div>
-                        )) : (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-40">
-                                <p className="text-sm">No players yet.</p>
-                            </div>
-                        )}
+                        )) : <div className="h-full flex flex-col items-center justify-center text-slate-600 opacity-40"><p className="text-sm">No players yet.</p></div>}
                     </div>
                 </div>
             </div>
-
         </div>
 
         {/* GLOBAL WINNERS HISTORY */}

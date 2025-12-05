@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Terminal, Smartphone, X } from 'lucide-react';
+import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, Copy, Plus } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
   chainId: 5042002, 
   rpcUrl: "https://rpc.testnet.arc.network", 
-  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
-  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -65,6 +63,7 @@ export default function App() {
   const [walletProvider, setWalletProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [wrongNetwork, setWrongNetwork] = useState(false);
+  const [isMobileBrowser, setIsMobileBrowser] = useState(false);
   
   // Data State
   const [pools, setPools] = useState({
@@ -84,11 +83,6 @@ export default function App() {
   const [loading, setLoading] = useState(false); 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-
-  // DEBUG LOGS
-  const [logs, setLogs] = useState([]);
-  const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
   // Init
   useEffect(() => {
@@ -102,18 +96,25 @@ export default function App() {
 
   const initProviders = async () => {
       setLibLoaded(true);
+      
+      // Detectar Mobile sem Web3 (Chrome/Safari normal)
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const hasWallet = window.ethereum;
+      
+      if (isMobile && !hasWallet) {
+          setIsMobileBrowser(true);
+      }
+
       let rProvider;
       if (window.ethereum) {
           rProvider = new window.ethers.providers.Web3Provider(window.ethereum);
           setWalletProvider(rProvider);
           const network = await rProvider.getNetwork();
           if (network.chainId !== CONFIG.chainId) setWrongNetwork(true);
-          addLog(`MetaMask Connected (Chain ${network.chainId})`);
       } else {
           try {
             rProvider = new window.ethers.providers.StaticJsonRpcProvider(CONFIG.rpcUrl, { chainId: CONFIG.chainId, name: 'arc-testnet' });
-            addLog(`Static RPC Connected`);
-          } catch(e) { addLog(`RPC Error: ${e.message}`); }
+          } catch(e) {}
       }
       setReadProvider(rProvider);
       if (rProvider) { fetchData(null, rProvider); fetchHistory(null, rProvider); }
@@ -220,7 +221,7 @@ export default function App() {
               }
           });
 
-      } catch (e) { addLog(`Fetch Data Error: ${e.message}`); }
+      } catch (e) { console.error("Fetch Data Error", e); }
   };
 
   // --- HISTORY FETCH (REVERSE SCANNING + LIMIT) ---
@@ -329,7 +330,7 @@ export default function App() {
     return () => clearInterval(t);
   }, [nextDraw]);
 
-  // --- TRANSACTIONS ---
+  // --- TRANSACTIONS & CONNECT ---
   
   const buyTicket = async (symbol) => {
       if(!signer) return connectWallet();
@@ -372,7 +373,6 @@ export default function App() {
       finally { setLoading(false); }
   };
 
-  // --- MOBILE DEEP LINKING UPDATE ---
   const connectWallet = async () => {
     if (window.ethereum) {
         try {
@@ -387,30 +387,6 @@ export default function App() {
         } catch (e) { showFeedback('error', 'Connection Cancelled'); }
         return;
     }
-
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-        setShowMobileMenu(true);
-    } else {
-        window.open("https://metamask.io/download/", "_blank");
-    }
-  };
-
-  const handleMobileConnect = (type) => {
-      // Remove protocolo para URL limpa (ex: lucky-day.netlify.app)
-      const currentUrl = window.location.href.replace('https://', '').replace('http://', '').split('/')[0];
-      let link = '';
-      
-      if (type === 'metamask') {
-          // Protocolo MetaMask: metamask://dapp/URL
-          link = `metamask://dapp/${currentUrl}`;
-      } else if (type === 'rabby' || type === 'generic') {
-          // CORREÇÃO: Protocolo dapp:// para Rabby/Trust
-          link = `dapp://${currentUrl}`; 
-      }
-      
-      if (link) window.location.href = link;
-      setShowMobileMenu(false);
   };
 
   const disconnectWallet = () => {
@@ -420,6 +396,39 @@ export default function App() {
   const showFeedback = (type, msg) => {
       setFeedback({ type, message: msg });
       setTimeout(() => setFeedback(null), 4000);
+  };
+
+  const switchNetwork = async () => {
+      if(!window.ethereum) return;
+      try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0x4cefba' }], // 5042002 in hex
+          });
+          setWrongNetwork(false);
+      } catch (switchError) {
+          // This error code indicates that the chain has not been added to MetaMask.
+          if (switchError.code === 4902) {
+              try {
+                  await window.ethereum.request({
+                      method: 'wallet_addEthereumChain',
+                      params: [{
+                          chainId: '0x4cefba',
+                          chainName: 'Arc Testnet',
+                          nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+                          rpcUrls: ['https://rpc.testnet.arc.network'],
+                          blockExplorerUrls: ['https://testnet.arcscan.app']
+                      }],
+                  });
+              } catch (addError) { console.error(addError); }
+          }
+      }
+  };
+
+  const copyUrl = () => {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url);
+      showFeedback('success', 'URL copied!');
   };
 
   const formatAddress = (addr) => {
@@ -432,6 +441,19 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 pb-20">
       
+      {/* MOBILE WARNING BANNER */}
+      {isMobileBrowser && (
+          <div className="bg-amber-500 text-amber-950 px-4 py-3 text-sm font-bold flex justify-between items-center sticky top-0 z-[100] shadow-lg">
+              <span className="flex-1 mr-2">
+                  <Smartphone className="inline w-4 h-4 mr-1 mb-0.5"/> 
+                  For best experience, open this link in your Wallet App Browser (MetaMask/Rabby).
+              </span>
+              <button onClick={copyUrl} className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded flex items-center gap-1 text-xs">
+                  <Copy size={12}/> Copy Link
+              </button>
+          </div>
+      )}
+
       {/* Navbar */}
       <nav className="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between relative">
@@ -442,8 +464,8 @@ export default function App() {
             <span className="font-bold text-2xl text-white tracking-tight">Lucky<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-400">Day</span></span>
           </div>
           
-          {/* LIVE BADGE - CENTERED */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+          {/* LIVE BADGE - CENTERED (Desktop Only) */}
+          <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]"></div>
              <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">Live on Arc Testnet</span>
           </div>
@@ -475,9 +497,20 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-12 relative">
         
         {wrongNetwork && (
-            <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center gap-3 text-red-400 animate-pulse">
-                <AlertTriangle className="w-5 h-5"/> 
-                <span className="font-bold">Wrong Network! Please switch to Arc Testnet.</span>
+            <div className="mb-8 p-6 bg-red-500/10 border border-red-500/30 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-4 text-red-400">
+                    <div className="p-3 bg-red-500/20 rounded-full"><AlertTriangle className="w-6 h-6"/></div>
+                    <div>
+                        <p className="font-bold text-lg">Wrong Network Detected</p>
+                        <p className="text-sm opacity-80">Please switch your wallet to Arc Testnet to play.</p>
+                    </div>
+                </div>
+                <button 
+                    onClick={switchNetwork} 
+                    className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+                >
+                    <Plus size={16}/> Switch to Arc Testnet
+                </button>
             </div>
         )}
 
@@ -485,46 +518,6 @@ export default function App() {
             <div className={`fixed top-24 right-4 px-6 py-4 rounded-xl border flex items-center gap-3 z-50 shadow-2xl animate-in slide-in-from-right fade-in duration-300 ${feedback.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200' : 'bg-blue-950/90 border-blue-500/50 text-blue-200'}`}>
                 {feedback.type === 'success' ? <CheckCircle2 size={20}/> : <Info size={20}/>}
                 <span className="font-medium">{feedback.message}</span>
-            </div>
-        )}
-
-        {/* MOBILE WALLET MENU MODAL */}
-        {showMobileMenu && (
-            <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
-                    <button 
-                        onClick={() => setShowMobileMenu(false)}
-                        className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white"
-                    >
-                        <X size={24} />
-                    </button>
-                    
-                    <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                        <Smartphone className="text-emerald-400"/> Connect Mobile
-                    </h3>
-                    <p className="text-slate-400 text-sm mb-6">Choose your preferred wallet app to open LuckyDay.</p>
-                    
-                    <div className="space-y-3">
-                        <button 
-                            onClick={() => handleMobileConnect('metamask')}
-                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white group"
-                        >
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="MetaMask"/>
-                            Open MetaMask
-                        </button>
-                        
-                        <button 
-                            onClick={() => handleMobileConnect('rabby')}
-                            className="w-full py-4 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-indigo-200 group"
-                        >
-                            <img src="https://rabby.io/assets/logo.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Rabby" onError={(e) => e.target.style.display='none'}/>
-                            <span className="flex items-center gap-2"><Zap size={16}/> Open Rabby / Other</span>
-                        </button>
-                    </div>
-                    <div className="mt-4 text-center text-xs text-slate-500">
-                        If buttons don't work, please open your wallet app manually and use the built-in browser.
-                    </div>
-                </div>
             </div>
         )}
 
@@ -777,17 +770,6 @@ export default function App() {
                         <p className="text-sm font-medium">{historyLoading ? 'Loading blockchain history...' : 'No history yet.'}</p>
                     </div>
                 )}
-            </div>
-            
-            {/* SYSTEM DIAGNOSTICS */}
-            <div className="mt-12 p-4 bg-black rounded-xl border border-slate-800 font-mono text-xs text-green-400 h-[200px] overflow-y-auto custom-scrollbar">
-                <h3 className="text-white font-bold border-b border-slate-800 pb-2 mb-2 sticky top-0 bg-black flex justify-between">
-                    <span>SYSTEM DIAGNOSTICS</span>
-                    <span onClick={() => setLogs([])} className="cursor-pointer hover:text-white">CLEAR</span>
-                </h3>
-                {logs.map((log, i) => (
-                    <div key={i} className="mb-1 border-b border-slate-900 pb-1 whitespace-pre-wrap">{log}</div>
-                ))}
             </div>
         </div>
 

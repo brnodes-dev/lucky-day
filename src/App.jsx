@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Terminal } from 'lucide-react';
+import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Terminal, Smartphone, X } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
@@ -84,6 +84,11 @@ export default function App() {
   const [loading, setLoading] = useState(false); 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+
+  // DEBUG LOGS
+  const [logs, setLogs] = useState([]);
+  const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
   // Init
   useEffect(() => {
@@ -213,7 +218,7 @@ export default function App() {
               }
           });
 
-      } catch (e) { console.error("Fetch Data Error", e); }
+      } catch (e) { addLog(`Fetch Data Error: ${e.message}`); }
   };
 
   // --- HISTORY FETCH (REVERSE SCANNING + LIMIT) ---
@@ -322,36 +327,7 @@ export default function App() {
     return () => clearInterval(t);
   }, [nextDraw]);
 
-  // --- TRANSACTIONS & CONNECT (Mobile Optimized) ---
-  
-  const connectWallet = async () => {
-    // 1. PC/Wallet Browser (Injected)
-    if (window.ethereum) {
-        try {
-          const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
-          if (accs.length > 0) {
-            const p = new window.ethers.providers.Web3Provider(window.ethereum);
-            const s = p.getSigner(accs[0]);
-            await s.signMessage(`Login LuckyDay ${Date.now()}`);
-            setAccount(accs[0]);
-            setSigner(s);
-          }
-        } catch (e) { showFeedback('error', 'Connection Cancelled'); }
-        return;
-    }
-
-    // 2. Mobile Browser (Deep Linking)
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-        const currentUrl = window.location.href.replace('https://', '').replace('http://', '');
-        // Tenta abrir direto no app MetaMask
-        const link = `https://metamask.app.link/dapp/${currentUrl}`;
-        window.location.href = link;
-    } else {
-        // 3. Desktop sem carteira
-        window.open("https://metamask.io/download/", "_blank");
-    }
-  };
+  // --- TRANSACTIONS ---
   
   const buyTicket = async (symbol) => {
       if(!signer) return connectWallet();
@@ -392,6 +368,48 @@ export default function App() {
           setTimeout(() => { fetchData(signer, readProvider); fetchHistory(signer, readProvider); }, 3000);
       } catch(e) { showFeedback('error', 'Draw Failed'); }
       finally { setLoading(false); }
+  };
+
+  // --- CONNECT LOGIC (MOBILE UPDATED) ---
+  const connectWallet = async () => {
+    // 1. PC/Wallet Browser (Injected)
+    if (window.ethereum) {
+        try {
+          const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (accs.length > 0) {
+            const p = new window.ethers.providers.Web3Provider(window.ethereum);
+            const s = p.getSigner(accs[0]);
+            await s.signMessage(`Login LuckyDay ${Date.now()}`);
+            setAccount(accs[0]);
+            setSigner(s);
+          }
+        } catch (e) { showFeedback('error', 'Connection Cancelled'); }
+        return;
+    }
+
+    // 2. Mobile without Injected Wallet -> Show Menu
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+        setShowMobileMenu(true);
+    } else {
+        // 3. Desktop sem carteira
+        window.open("https://metamask.io/download/", "_blank");
+    }
+  };
+
+  const handleMobileConnect = (type) => {
+      const currentUrl = window.location.href.replace('https://', '').replace('http://', '');
+      let link = '';
+      
+      if (type === 'metamask') {
+          link = `https://metamask.app.link/dapp/${currentUrl}`;
+      } else if (type === 'rabby') {
+          // CORREÇÃO: Usando Universal Link da Rabby conforme documentado
+          link = `https://rabby.io/`; 
+      }
+      
+      if (link) window.location.href = link;
+      setShowMobileMenu(false);
   };
 
   const disconnectWallet = () => {
@@ -453,7 +471,7 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="max-w-6xl mx-auto px-4 py-12">
+      <main className="max-w-6xl mx-auto px-4 py-12 relative">
         
         {wrongNetwork && (
             <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-center gap-3 text-red-400 animate-pulse">
@@ -469,6 +487,47 @@ export default function App() {
             </div>
         )}
 
+        {/* MOBILE WALLET MENU MODAL */}
+        {showMobileMenu && (
+            <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
+                    <button 
+                        onClick={() => setShowMobileMenu(false)}
+                        className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white"
+                    >
+                        <X size={24} />
+                    </button>
+                    
+                    <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                        <Smartphone className="text-emerald-400"/> Connect Mobile
+                    </h3>
+                    <p className="text-slate-400 text-sm mb-6">Choose your preferred wallet app to open LuckyDay.</p>
+                    
+                    <div className="space-y-3">
+                        <button 
+                            onClick={() => handleMobileConnect('metamask')}
+                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white group"
+                        >
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="MetaMask"/>
+                            Open MetaMask
+                        </button>
+                        
+                        <button 
+                            onClick={() => handleMobileConnect('rabby')}
+                            className="w-full py-4 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-indigo-200 group"
+                        >
+                            <img src="https://rabby.io/assets/logo.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Rabby" onError={(e) => e.target.style.display='none'}/>
+                            <span className="flex items-center gap-2"><Zap size={16}/> Open Rabby</span>
+                        </button>
+                    </div>
+                    <div className="mt-4 text-center text-xs text-slate-500">
+                        If buttons don't work, please open your wallet app manually and use the built-in browser.
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* ADMIN PANEL */}
         {isAdminLoggedIn && (
           <div className="mb-12 border border-amber-500/30 bg-amber-900/10 rounded-3xl p-6 relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-10">

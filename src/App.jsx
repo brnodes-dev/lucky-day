@@ -5,7 +5,9 @@ import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, Ale
 const CONFIG = {
   chainId: 5042002, 
   rpcUrl: "https://rpc.testnet.arc.network", 
+  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
+  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -84,8 +86,9 @@ export default function App() {
   const [feedback, setFeedback] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
-  // DEBUG LOGS (Console only)
-  const addLog = (msg) => console.log(`[LuckyDay] ${msg}`);
+  // DEBUG LOGS
+  const [logs, setLogs] = useState([]);
+  const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
   // Init
   useEffect(() => {
@@ -105,10 +108,12 @@ export default function App() {
           setWalletProvider(rProvider);
           const network = await rProvider.getNetwork();
           if (network.chainId !== CONFIG.chainId) setWrongNetwork(true);
+          addLog(`MetaMask Connected (Chain ${network.chainId})`);
       } else {
           try {
             rProvider = new window.ethers.providers.StaticJsonRpcProvider(CONFIG.rpcUrl, { chainId: CONFIG.chainId, name: 'arc-testnet' });
-          } catch(e) { console.error(e); }
+            addLog(`Static RPC Connected`);
+          } catch(e) { addLog(`RPC Error: ${e.message}`); }
       }
       setReadProvider(rProvider);
       if (rProvider) { fetchData(null, rProvider); fetchHistory(null, rProvider); }
@@ -367,9 +372,8 @@ export default function App() {
       finally { setLoading(false); }
   };
 
-  // --- MOBILE DEEP LINKING FIX ---
+  // --- MOBILE DEEP LINKING UPDATE ---
   const connectWallet = async () => {
-    // 1. PC/Wallet Browser (Injected)
     if (window.ethereum) {
         try {
           const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
@@ -384,18 +388,16 @@ export default function App() {
         return;
     }
 
-    // 2. Mobile without Injected Wallet -> Show Menu
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) {
         setShowMobileMenu(true);
     } else {
-        // 3. Desktop sem carteira
         window.open("https://metamask.io/download/", "_blank");
     }
   };
 
   const handleMobileConnect = (type) => {
-      // Remove protocolo para ter URL limpa (ex: lucky-day.netlify.app)
+      // Remove protocolo para URL limpa (ex: lucky-day.netlify.app)
       const currentUrl = window.location.href.replace('https://', '').replace('http://', '').split('/')[0];
       let link = '';
       
@@ -403,7 +405,7 @@ export default function App() {
           // Protocolo MetaMask: metamask://dapp/URL
           link = `metamask://dapp/${currentUrl}`;
       } else if (type === 'rabby' || type === 'generic') {
-          // Protocolo Genérico para Rabby/Trust: dapp://URL
+          // CORREÇÃO: Protocolo dapp:// para Rabby/Trust
           link = `dapp://${currentUrl}`; 
       }
       
@@ -775,6 +777,17 @@ export default function App() {
                         <p className="text-sm font-medium">{historyLoading ? 'Loading blockchain history...' : 'No history yet.'}</p>
                     </div>
                 )}
+            </div>
+            
+            {/* SYSTEM DIAGNOSTICS */}
+            <div className="mt-12 p-4 bg-black rounded-xl border border-slate-800 font-mono text-xs text-green-400 h-[200px] overflow-y-auto custom-scrollbar">
+                <h3 className="text-white font-bold border-b border-slate-800 pb-2 mb-2 sticky top-0 bg-black flex justify-between">
+                    <span>SYSTEM DIAGNOSTICS</span>
+                    <span onClick={() => setLogs([])} className="cursor-pointer hover:text-white">CLEAR</span>
+                </h3>
+                {logs.map((log, i) => (
+                    <div key={i} className="mb-1 border-b border-slate-900 pb-1 whitespace-pre-wrap">{log}</div>
+                ))}
             </div>
         </div>
 

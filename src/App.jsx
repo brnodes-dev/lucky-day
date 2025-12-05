@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, X, Plus } from 'lucide-react';
+import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, AlertTriangle, Info, Zap, Lock, UserCog, Gavel, LogOut, History, Award, RefreshCcw, ExternalLink, Coins, Smartphone, X, Copy } from 'lucide-react';
 
 // --- CONFIGURATION ---
 const CONFIG = {
   chainId: 5042002, 
   rpcUrl: "https://rpc.testnet.arc.network", 
+  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
+  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -185,13 +187,9 @@ export default function App() {
           setNextDraw(drawTime.toNumber());
           setMaxTickets(max.toNumber());
 
-          // PROTEÇÃO: Garante que é array antes de mapear
-          const safeUsdcPlayers = Array.isArray(usdcPlayers) ? usdcPlayers : [];
-          const safeEurcPlayers = Array.isArray(eurcPlayers) ? eurcPlayers : [];
-
           const combinedPlayers = [
-              ...safeUsdcPlayers.map(addr => ({ address: addr, symbol: 'USDC' })),
-              ...safeEurcPlayers.map(addr => ({ address: addr, symbol: 'EURC' }))
+              ...(usdcPlayers || []).map(addr => ({ address: addr, symbol: 'USDC' })),
+              ...(eurcPlayers || []).map(addr => ({ address: addr, symbol: 'EURC' }))
           ];
           setParticipants(combinedPlayers);
 
@@ -373,6 +371,7 @@ export default function App() {
       finally { setLoading(false); }
   };
 
+  // --- MOBILE CONNECT (COPY LINK UPDATE) ---
   const connectWallet = async () => {
     // 1. PC/Wallet Browser (Injected)
     if (window.ethereum) {
@@ -389,33 +388,30 @@ export default function App() {
         return;
     }
 
-    // 2. Mobile without Injected Wallet -> Show Menu
+    // 2. Mobile without Injected Wallet -> Show Modal
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) {
         setShowMobileMenu(true);
     } else {
-        // 3. Desktop sem carteira
         window.open("https://metamask.io/download/", "_blank");
     }
   };
 
-  const handleMobileConnect = (type) => {
-      // Remove protocolo para URL limpa (ex: lucky-day.netlify.app)
-      const currentUrl = window.location.href.replace('https://', '').replace('http://', '').split('/')[0];
-      let link = '';
-      
-      if (type === 'metamask') {
-          // Protocolo MetaMask: metamask://dapp/URL
-          link = `metamask://dapp/${currentUrl}`;
-      } else if (type === 'rabby') {
-          // Usando o link oficial da Rabby que redireciona se app instalado
-          link = `https://rabby.io/`; 
-      } else if (type === 'generic') {
-          // Protocolo Genérico para outras wallets
-          link = `dapp://${currentUrl}`;
+  const copyUrl = () => {
+      const url = window.location.href;
+      // Uso de execCommand para compatibilidade com iFrames
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+          document.execCommand('copy');
+          showFeedback('success', 'URL copied! Open in Wallet Browser.');
+      } catch (err) {
+          showFeedback('error', 'Failed to copy URL');
       }
-      
-      if (link) window.location.href = link;
+      document.body.removeChild(textArea);
       setShowMobileMenu(false);
   };
 
@@ -449,7 +445,7 @@ export default function App() {
           </div>
           
           {/* LIVE BADGE - CENTERED */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+          <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.3)]">
              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]"></div>
              <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">Live on Arc Testnet</span>
           </div>
@@ -494,7 +490,7 @@ export default function App() {
             </div>
         )}
 
-        {/* MOBILE WALLET MENU MODAL */}
+        {/* MOBILE WALLET MENU MODAL (UPDATED) */}
         {showMobileMenu && (
             <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                 <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
@@ -506,33 +502,21 @@ export default function App() {
                     </button>
                     
                     <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                        <Smartphone className="text-emerald-400"/> Connect Mobile
+                        <Smartphone className="text-emerald-400"/> Mobile Wallet
                     </h3>
-                    <p className="text-slate-400 text-sm mb-6">Choose your preferred wallet app to open LuckyDay.</p>
+                    <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                        This dApp works best inside your wallet's built-in browser (MetaMask, Rabby, etc).
+                    </p>
                     
-                    <div className="space-y-3">
-                        <button 
-                            onClick={() => handleMobileConnect('metamask')}
-                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white group"
-                        >
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="MetaMask"/>
-                            Open MetaMask
-                        </button>
-                        
-                        <button 
-                            onClick={() => handleMobileConnect('rabby')}
-                            className="w-full py-4 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-indigo-200 group"
-                        >
-                            <img src="https://rabby.io/assets/logo.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Rabby" onError={(e) => e.target.style.display='none'}/>
-                            <span className="flex items-center gap-2"><Zap size={16}/> Open Rabby</span>
-                        </button>
-
-                         <button 
-                            onClick={() => handleMobileConnect('generic')}
-                            className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-slate-300 group"
-                        >
-                            <span className="flex items-center gap-2">Other Wallets</span>
-                        </button>
+                    <button 
+                        onClick={copyUrl}
+                        className="w-full py-4 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-white shadow-lg shadow-blue-900/30"
+                    >
+                        <Copy size={20}/> Copy Website Link
+                    </button>
+                    
+                    <div className="mt-4 text-center text-xs text-slate-500">
+                        Paste this link in your wallet app's browser.
                     </div>
                 </div>
             </div>

@@ -1,0 +1,18 @@
+[build]
+  # Comando para construir o site
+  command = "npm run build"
+  # Pasta onde o Vite gera os arquivos
+  publish = "dist"
+
+# ADIÇÃO: Força a Netlify a usar o Node.js 20 (Estável) em vez do 22
+[build.environment]
+  NODE_VERSION = "20"
+
+[dev]
+  command = "npm run dev"
+
+# Regra de redirecionamento para React (SPA)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

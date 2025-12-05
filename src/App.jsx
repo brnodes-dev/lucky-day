@@ -5,9 +5,7 @@ import { Wallet, Ticket, Trophy, Timer, Sparkles, ShieldCheck, CheckCircle2, Ale
 const CONFIG = {
   chainId: 5042002, 
   rpcUrl: "https://rpc.testnet.arc.network", 
-  // ENDEREÇO DO CONTRATO
   contractAddress: "0x37A9DA7cabECf1d4DcCA4838dA4a2b61927D226c", 
-  // Bloco de criação
   startBlock: 14638469, 
   explorerUrl: "https://testnet.arcscan.app/tx/",
   tokens: {
@@ -86,9 +84,8 @@ export default function App() {
   const [feedback, setFeedback] = useState(null);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
-  // DEBUG LOGS
-  const [logs, setLogs] = useState([]);
-  const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+  // DEBUG LOGS (Console only)
+  const addLog = (msg) => console.log(`[LuckyDay] ${msg}`);
 
   // Init
   useEffect(() => {
@@ -370,7 +367,7 @@ export default function App() {
       finally { setLoading(false); }
   };
 
-  // --- CONNECT LOGIC (MOBILE UPDATED) ---
+  // --- MOBILE DEEP LINKING FIX ---
   const connectWallet = async () => {
     // 1. PC/Wallet Browser (Injected)
     if (window.ethereum) {
@@ -398,14 +395,16 @@ export default function App() {
   };
 
   const handleMobileConnect = (type) => {
-      const currentUrl = window.location.href.replace('https://', '').replace('http://', '');
+      // Remove protocolo para ter URL limpa (ex: lucky-day.netlify.app)
+      const currentUrl = window.location.href.replace('https://', '').replace('http://', '').split('/')[0];
       let link = '';
       
       if (type === 'metamask') {
-          link = `https://metamask.app.link/dapp/${currentUrl}`;
-      } else if (type === 'rabby') {
-          // CORREÇÃO: Usando Universal Link da Rabby conforme documentado
-          link = `https://rabby.io/`; 
+          // Protocolo MetaMask: metamask://dapp/URL
+          link = `metamask://dapp/${currentUrl}`;
+      } else if (type === 'rabby' || type === 'generic') {
+          // Protocolo Genérico para Rabby/Trust: dapp://URL
+          link = `dapp://${currentUrl}`; 
       }
       
       if (link) window.location.href = link;
@@ -517,7 +516,7 @@ export default function App() {
                             className="w-full py-4 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-xl flex items-center justify-center gap-3 transition-all font-bold text-indigo-200 group"
                         >
                             <img src="https://rabby.io/assets/logo.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Rabby" onError={(e) => e.target.style.display='none'}/>
-                            <span className="flex items-center gap-2"><Zap size={16}/> Open Rabby</span>
+                            <span className="flex items-center gap-2"><Zap size={16}/> Open Rabby / Other</span>
                         </button>
                     </div>
                     <div className="mt-4 text-center text-xs text-slate-500">
